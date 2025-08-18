@@ -22,5 +22,14 @@ func New(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /logout", uh.Logout)
 	mux.HandleFunc("GET /get-user", uh.GetUser)
 
+	ah := &handlers.AttendanceHandler{
+		Users:      repo.NewUserRepo(db),
+		Attendance: repo.NewAttendanceRepo(db),
+	}
+	mux.HandleFunc("GET /config/office", ah.GetOfficeConfig)
+	mux.HandleFunc("POST /attendance/status", ah.Status)
+	mux.HandleFunc("POST /attendance/check-in", ah.CheckIn)
+	mux.HandleFunc("POST /attendance/check-out", ah.CheckOut)
+
 	return mux
 }
