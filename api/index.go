@@ -3,22 +3,29 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"absensi/app"
 )
 
 var once sync.Once
-var h http.Handler
+var srv *app.Server
 
 func Handler(w http.ResponseWriter, r *http.Request) {
 	once.Do(func() {
-		srv, err := app.NewFromEnv()
+		var err error
+		srv, err = app.NewFromEnv()
 		if err != nil {
 			panic(err)
 		}
-		// request ke /api/... jadi /...
-		h = http.StripPrefix("/api", srv.Handler)
 	})
+
+	h := srv.Handler
+	// handle dua mode: dengan /api dan tanpa /api
+	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api" {
+		http.StripPrefix("/api", h).ServeHTTP(w, r)
+		return
+	}
 	h.ServeHTTP(w, r)
 }
