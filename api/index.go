@@ -1,4 +1,4 @@
-// api/index.go
+// api/[...path].go
 package handler
 
 import (
@@ -17,7 +17,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			panic(err)
 		}
-		h = srv.Handler
+		// request ke /api/... jadi /...
+		h = http.StripPrefix("/api", srv.Handler)
 	})
 	h.ServeHTTP(w, r)
 }
