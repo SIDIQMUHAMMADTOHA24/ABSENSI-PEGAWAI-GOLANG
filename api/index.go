@@ -10,13 +10,15 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"absensi/app" // <— pakai wrapper publik
 	"absensi/internal/db"
-	"absensi/internal/http/router"
 )
 
-var once sync.Once
-var app http.Handler
-var sqlDB *sql.DB
+var (
+	once  sync.Once
+	srv   http.Handler
+	sqlDB *sql.DB
+)
 
 func initApp() {
 	dsn := os.Getenv("DATABASE_URL")
@@ -30,15 +32,14 @@ func initApp() {
 		panic(err)
 	}
 
-	// serverless friendly pool settings
 	sqlDB.SetMaxOpenConns(5)
 	sqlDB.SetMaxIdleConns(2)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
-	app = router.New(sqlDB)
+	srv = app.NewHandler(sqlDB) // <— panggil wrapper, bukan router langsung
 }
 
 func Handler(w http.ResponseWriter, r *http.Request) {
 	once.Do(initApp)
-	app.ServeHTTP(w, r)
+	srv.ServeHTTP(w, r)
 }
