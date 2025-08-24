@@ -2,11 +2,10 @@
 package handler
 
 import (
+	"absensi/app"
 	"net/http"
 	"strings"
 	"sync"
-
-	"absensi/app"
 )
 
 var once sync.Once
