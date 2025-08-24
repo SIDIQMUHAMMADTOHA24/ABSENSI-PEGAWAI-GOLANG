@@ -1,4 +1,5 @@
-package main
+// api/index.go
+package handler
 
 import (
 	"database/sql"
@@ -29,6 +30,7 @@ func initApp() {
 		panic(err)
 	}
 
+	// serverless friendly pool settings
 	sqlDB.SetMaxOpenConns(5)
 	sqlDB.SetMaxIdleConns(2)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
