@@ -1,6 +1,9 @@
 package app
 
 import (
+	"absensi/internal/db"
+	"absensi/internal/http/router"
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -8,9 +11,6 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-
-	"absensi/internal/db"
-	"absensi/internal/http/router"
 )
 
 type Server struct {
@@ -26,13 +26,19 @@ func NewFromEnv() (*Server, error) {
 
 	sqlDB, err := db.Connect(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect db: %w", err)
 	}
 
-	// Tuning kecil biar aman di serverless
+	// tuning serverless
 	sqlDB.SetMaxOpenConns(5)
 	sqlDB.SetMaxIdleConns(2)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("db ping: %w", err)
+	}
 
 	return &Server{
 		DB:      sqlDB,
