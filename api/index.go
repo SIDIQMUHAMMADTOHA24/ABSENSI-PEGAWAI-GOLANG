@@ -1,11 +1,11 @@
-// api/[...path].go
+// api/index.go
 package handler
 
 import (
-	"absensi/app"
 	"net/http"
-	"strings"
 	"sync"
+
+	"absensi/app"
 )
 
 var once sync.Once
@@ -19,11 +19,5 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 	})
-
-	h := srv.Handler
-	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api" {
-		http.StripPrefix("/api", h).ServeHTTP(w, r)
-		return
-	}
-	h.ServeHTTP(w, r)
+	srv.Handler.ServeHTTP(w, r)
 }
