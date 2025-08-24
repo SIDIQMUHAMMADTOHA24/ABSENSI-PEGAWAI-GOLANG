@@ -22,7 +22,6 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	h := srv.Handler
-	// handle dua mode: dengan /api dan tanpa /api
 	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api" {
 		http.StripPrefix("/api", h).ServeHTTP(w, r)
 		return
