@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -75,4 +76,15 @@ func (r *AttendanceRepo) DoCheckOut(ctx context.Context, userID string, date tim
 	err := r.DB.QueryRowContext(ctx, q, userID, date.Format("2006-01-02"), now, lat, lng, dist).
 		Scan(&ad.ID, &ad.UserID, &ad.Date, &ad.CheckInAt, &ad.CheckOutAt)
 	return ad, err
+}
+
+func (r *AttendanceRepo) ResetToday(ctx context.Context, userID, yyyymmdd string) (int64, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		DELETE FROM attendance_days
+		WHERE user_id = $1 AND date = $2::date
+	`, userID, yyyymmdd)
+	if err != nil {
+		return 0, fmt.Errorf("delete attendance_days: %w", err)
+	}
+	return res.RowsAffected()
 }

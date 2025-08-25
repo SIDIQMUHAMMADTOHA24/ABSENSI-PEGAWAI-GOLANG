@@ -28,9 +28,6 @@ func main() {
 	defer sqlDB.Close()
 
 	mux := router.New(sqlDB)
-	http.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
-	})
 	addr := ":8080"
 	log.Println("listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))

@@ -31,5 +31,7 @@ func New(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /attendance/check-in", ah.CheckIn)
 	mux.HandleFunc("POST /attendance/check-out", ah.CheckOut)
 
+	mux.HandleFunc("POST /attendance/debug/reset-today", ah.DebugResetToday)
+
 	return mux
 }
