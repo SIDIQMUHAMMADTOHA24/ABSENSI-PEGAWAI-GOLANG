@@ -15,23 +15,23 @@ func New(db *sql.DB) http.Handler {
 		Users:       repo.NewUserRepo(db),
 		RefreshRepo: repo.NewRefreshRepo(db),
 	}
-
+	ah := &handlers.AttendanceHandler{
+		Users:      repo.NewUserRepo(db),
+		Attendance: repo.NewAttendanceRepo(db),
+	}
 	mux.HandleFunc("POST /register", uh.Register)
 	mux.HandleFunc("POST /login", uh.Login)
 	mux.HandleFunc("POST /refresh", uh.RefreshToken)
 	mux.HandleFunc("POST /logout", uh.Logout)
 	mux.HandleFunc("GET /get-user", uh.GetUser)
 
-	ah := &handlers.AttendanceHandler{
-		Users:      repo.NewUserRepo(db),
-		Attendance: repo.NewAttendanceRepo(db),
-	}
 	mux.HandleFunc("GET /config/office", ah.GetOfficeConfig)
 	mux.HandleFunc("POST /attendance/status", ah.Status)
 	mux.HandleFunc("POST /attendance/check-in", ah.CheckIn)
 	mux.HandleFunc("POST /attendance/check-out", ah.CheckOut)
-
 	mux.HandleFunc("POST /attendance/debug/reset-today", ah.DebugResetToday)
+	mux.HandleFunc("GET /attendance/marks", ah.GetMarks)
+	mux.HandleFunc("GET /attendance/day", ah.GetDay)
 
 	return mux
 }

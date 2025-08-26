@@ -88,3 +88,69 @@ func (r *AttendanceRepo) ResetToday(ctx context.Context, userID, yyyymmdd string
 	}
 	return res.RowsAffected()
 }
+
+func (r *AttendanceRepo) ListMarkedDays(ctx context.Context, userID string, from, to time.Time) ([]time.Time, error) {
+	const q = `
+		SELECT date
+		FROM attendance_days
+		WHERE user_id = $1
+		  AND date >= $2::date
+		  AND date <  $3::date
+		  AND (check_in_at IS NOT NULL OR check_out_at IS NOT NULL)
+		ORDER BY date;
+	`
+	rows, err := r.DB.QueryContext(ctx, q,
+		userID,
+		from.Format("2006-01-02"),
+		to.Format("2006-01-02"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []time.Time
+	for rows.Next() {
+		var d time.Time
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// GetDayRaw: ambil detail in/out untuk 1 hari.
+type DayRaw struct {
+	CheckInAt  sql.NullTime
+	InLat      sql.NullFloat64
+	InLng      sql.NullFloat64
+	InDist     sql.NullFloat64
+	CheckOutAt sql.NullTime
+	OutLat     sql.NullFloat64
+	OutLng     sql.NullFloat64
+	OutDist    sql.NullFloat64
+}
+
+func (r *AttendanceRepo) GetDayRaw(ctx context.Context, userID string, date time.Time) (DayRaw, error) {
+	const q = `
+		SELECT
+			check_in_at,  check_in_lat,  check_in_lng,  check_in_distance_m,
+			check_out_at, check_out_lat, check_out_lng, check_out_distance_m
+		FROM attendance_days
+		WHERE user_id = $1 AND date = $2::date
+		LIMIT 1;
+	`
+	var dr DayRaw
+	err := r.DB.QueryRowContext(ctx, q,
+		userID,
+		date.Format("2006-01-02"),
+	).Scan(
+		&dr.CheckInAt, &dr.InLat, &dr.InLng, &dr.InDist,
+		&dr.CheckOutAt, &dr.OutLat, &dr.OutLng, &dr.OutDist,
+	)
+	if err == sql.ErrNoRows {
+		return DayRaw{}, nil
+	}
+	return dr, err
+}

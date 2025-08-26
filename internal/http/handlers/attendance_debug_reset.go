@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 type debugResetReq struct {
@@ -83,9 +87,52 @@ func (h *AttendanceHandler) DebugResetToday(w http.ResponseWriter, r *http.Reque
 // Sesuaikan dgn cara kamu ambil user di Status/CheckIn/CheckOut.
 // Di sini contoh minimal: ambil dari context "user_id".
 func userIDFromRequest(r *http.Request) (string, bool) {
-	v := r.Context().Value("user_id")
-	if s, ok := v.(string); ok && s != "" {
-		return s, true
+	// 1) Context (kalau nanti kamu punya middleware yang inject user_id)
+	if v := r.Context().Value("user_id"); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true
+		}
+	}
+
+	// 2) Authorization header (Bearer JWT)
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return "", false
+	}
+	parts := strings.SplitN(auth, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "", false
+	}
+	tokenStr := strings.TrimSpace(parts[1])
+
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		// Server misconfigured — lebih aman kembalikan unauthorized.
+		return "", false
+	}
+
+	tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		// (opsional) validasi method HS256, dsb.
+		return []byte(secret), nil
+	})
+	if err != nil || !tok.Valid {
+		return "", false
+	}
+
+	// Cari claim user id di salah satu key ini. Tokenmu di contoh punya "sub".
+	if claims, ok := tok.Claims.(jwt.MapClaims); ok {
+		for _, key := range []string{"uid", "user_id", "sub", "id"} {
+			if v, ok := claims[key]; ok {
+				switch vv := v.(type) {
+				case string:
+					if vv != "" {
+						return vv, true
+					}
+				case float64:
+					return strconv.FormatInt(int64(vv), 10), true
+				}
+			}
+		}
 	}
 	return "", false
 }
