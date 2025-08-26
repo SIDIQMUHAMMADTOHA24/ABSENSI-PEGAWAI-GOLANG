@@ -44,37 +44,57 @@ func (r *AttendanceRepo) GetByUserAndDate(ctx context.Context, userID string, da
 }
 
 // Insert check-in jika belum ada; kalau baris sudah ada dan check_in_at NULL → isi sekarang.
-func (r *AttendanceRepo) DoCheckIn(ctx context.Context, userID string, date time.Time, now time.Time, lat, lng, dist float64) (AttendanceDay, error) {
+func (r *AttendanceRepo) DoCheckIn(
+	ctx context.Context,
+	userID string, date time.Time, now time.Time,
+	lat, lng, dist float64,
+	photoB64 string,
+) (AttendanceDay, error) {
 	q := `
-	INSERT INTO attendance_days (user_id, date, check_in_at, check_in_lat, check_in_lng, check_in_distance_m)
-	VALUES ($1, $2::date, $3, $4, $5, $6)
+	INSERT INTO attendance_days (
+		user_id, date, check_in_at, check_in_lat, check_in_lng, check_in_distance_m, check_in_photo_b64
+	) VALUES ($1, $2::date, $3, $4, $5, $6, $7)
 	ON CONFLICT (user_id, date)
 	DO UPDATE SET
 		check_in_at = COALESCE(attendance_days.check_in_at, EXCLUDED.check_in_at),
 		check_in_lat = COALESCE(attendance_days.check_in_lat, EXCLUDED.check_in_lat),
 		check_in_lng = COALESCE(attendance_days.check_in_lng, EXCLUDED.check_in_lng),
 		check_in_distance_m = COALESCE(attendance_days.check_in_distance_m, EXCLUDED.check_in_distance_m),
+		check_in_photo_b64 = COALESCE(attendance_days.check_in_photo_b64, EXCLUDED.check_in_photo_b64),
 		updated_at = NOW()
 	WHERE attendance_days.check_in_at IS NULL
 	RETURNING id::text, user_id, date, check_in_at, check_out_at
 	`
 	var ad AttendanceDay
-	err := r.DB.QueryRowContext(ctx, q, userID, date.Format("2006-01-02"), now, lat, lng, dist).
-		Scan(&ad.ID, &ad.UserID, &ad.Date, &ad.CheckInAt, &ad.CheckOutAt)
+	err := r.DB.QueryRowContext(ctx, q,
+		userID, date.Format("2006-01-02"), now, lat, lng, dist, photoB64,
+	).Scan(&ad.ID, &ad.UserID, &ad.Date, &ad.CheckInAt, &ad.CheckOutAt)
 	return ad, err
 }
 
 // Update check-out jika sudah check-in dan check-out masih NULL
-func (r *AttendanceRepo) DoCheckOut(ctx context.Context, userID string, date time.Time, now time.Time, lat, lng, dist float64) (AttendanceDay, error) {
+func (r *AttendanceRepo) DoCheckOut(
+	ctx context.Context,
+	userID string, date time.Time, now time.Time,
+	lat, lng, dist float64,
+	photoB64 string,
+) (AttendanceDay, error) {
 	q := `
 	UPDATE attendance_days
-	SET check_out_at=$3, check_out_lat=$4, check_out_lng=$5, check_out_distance_m=$6, updated_at=NOW()
+	SET
+		check_out_at=$3,
+		check_out_lat=$4,
+		check_out_lng=$5,
+		check_out_distance_m=$6,
+		check_out_photo_b64=$7,
+		updated_at=NOW()
 	WHERE user_id=$1 AND date=$2::date AND check_in_at IS NOT NULL AND check_out_at IS NULL
 	RETURNING id::text, user_id, date, check_in_at, check_out_at
 	`
 	var ad AttendanceDay
-	err := r.DB.QueryRowContext(ctx, q, userID, date.Format("2006-01-02"), now, lat, lng, dist).
-		Scan(&ad.ID, &ad.UserID, &ad.Date, &ad.CheckInAt, &ad.CheckOutAt)
+	err := r.DB.QueryRowContext(ctx, q,
+		userID, date.Format("2006-01-02"), now, lat, lng, dist, photoB64,
+	).Scan(&ad.ID, &ad.UserID, &ad.Date, &ad.CheckInAt, &ad.CheckOutAt)
 	return ad, err
 }
 
@@ -126,28 +146,30 @@ type DayRaw struct {
 	InLat      sql.NullFloat64
 	InLng      sql.NullFloat64
 	InDist     sql.NullFloat64
-	CheckOutAt sql.NullTime
-	OutLat     sql.NullFloat64
-	OutLng     sql.NullFloat64
-	OutDist    sql.NullFloat64
+	InPhotoB64 sql.NullString
+
+	CheckOutAt  sql.NullTime
+	OutLat      sql.NullFloat64
+	OutLng      sql.NullFloat64
+	OutDist     sql.NullFloat64
+	OutPhotoB64 sql.NullString
 }
 
 func (r *AttendanceRepo) GetDayRaw(ctx context.Context, userID string, date time.Time) (DayRaw, error) {
 	const q = `
 		SELECT
-			check_in_at,  check_in_lat,  check_in_lng,  check_in_distance_m,
-			check_out_at, check_out_lat, check_out_lng, check_out_distance_m
+			check_in_at,  check_in_lat,  check_in_lng,  check_in_distance_m,  check_in_photo_b64,
+			check_out_at, check_out_lat, check_out_lng, check_out_distance_m, check_out_photo_b64
 		FROM attendance_days
 		WHERE user_id = $1 AND date = $2::date
 		LIMIT 1;
 	`
 	var dr DayRaw
 	err := r.DB.QueryRowContext(ctx, q,
-		userID,
-		date.Format("2006-01-02"),
+		userID, date.Format("2006-01-02"),
 	).Scan(
-		&dr.CheckInAt, &dr.InLat, &dr.InLng, &dr.InDist,
-		&dr.CheckOutAt, &dr.OutLat, &dr.OutLng, &dr.OutDist,
+		&dr.CheckInAt, &dr.InLat, &dr.InLng, &dr.InDist, &dr.InPhotoB64,
+		&dr.CheckOutAt, &dr.OutLat, &dr.OutLng, &dr.OutDist, &dr.OutPhotoB64,
 	)
 	if err == sql.ErrNoRows {
 		return DayRaw{}, nil

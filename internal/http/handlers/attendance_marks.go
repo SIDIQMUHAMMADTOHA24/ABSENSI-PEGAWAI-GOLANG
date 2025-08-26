@@ -73,11 +73,12 @@ func (h *AttendanceHandler) GetMarks(w http.ResponseWriter, r *http.Request) {
 // ===== GET /attendance/day?date=YYYY-MM-DD&tz=Asia/Jakarta
 
 type dayEvent struct {
-	Type      string   `json:"type"` // "check_in" | "check_out"
-	At        string   `json:"at"`   // RFC3339 UTC, ex: 2025-08-25T01:59:30Z
-	Lat       *float64 `json:"lat,omitempty"`
-	Lng       *float64 `json:"lng,omitempty"`
-	DistanceM *float64 `json:"distance_m,omitempty"`
+	Type        string   `json:"type"`
+	At          string   `json:"at"`
+	Lat         *float64 `json:"lat,omitempty"`
+	Lng         *float64 `json:"lng,omitempty"`
+	DistanceM   *float64 `json:"distance_m,omitempty"`
+	PhotoBase64 *string  `json:"photo_base64,omitempty"`
 }
 type dayResp struct {
 	Date          string     `json:"date"`
@@ -134,22 +135,32 @@ func (h *AttendanceHandler) GetDay(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	ptrS := func(s sql.NullString) *string {
+		if s.Valid {
+			v := s.String
+			return &v
+		}
+		return nil
+	}
+
 	if raw.CheckInAt.Valid {
 		events = append(events, dayEvent{
-			Type:      "check_in",
-			At:        raw.CheckInAt.Time.UTC().Format(time.RFC3339),
-			Lat:       ptr(raw.InLat),
-			Lng:       ptr(raw.InLng),
-			DistanceM: ptr(raw.InDist),
+			Type:        "check_in",
+			At:          raw.CheckInAt.Time.UTC().Format(time.RFC3339),
+			Lat:         ptr(raw.InLat),
+			Lng:         ptr(raw.InLng),
+			DistanceM:   ptr(raw.InDist),
+			PhotoBase64: ptrS(raw.InPhotoB64),
 		})
 	}
 	if raw.CheckOutAt.Valid {
 		events = append(events, dayEvent{
-			Type:      "check_out",
-			At:        raw.CheckOutAt.Time.UTC().Format(time.RFC3339),
-			Lat:       ptr(raw.OutLat),
-			Lng:       ptr(raw.OutLng),
-			DistanceM: ptr(raw.OutDist),
+			Type:        "check_out",
+			At:          raw.CheckOutAt.Time.UTC().Format(time.RFC3339),
+			Lat:         ptr(raw.OutLat),
+			Lng:         ptr(raw.OutLng),
+			DistanceM:   ptr(raw.OutDist),
+			PhotoBase64: ptrS(raw.OutPhotoB64),
 		})
 	}
 	if raw.CheckInAt.Valid && raw.CheckOutAt.Valid {

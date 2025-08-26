@@ -11,6 +11,7 @@ import (
 
 	"absensi/internal/repo"
 	"absensi/internal/util"
+	"absensi/internal/util/imgutil"
 )
 
 type AttendanceHandler struct {
@@ -39,8 +40,9 @@ func (h *AttendanceHandler) GetOfficeConfig(w http.ResponseWriter, r *http.Reque
 }
 
 type posReq struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	SelfieBase64 string  `json:"selfie_base64"` // wajib
 }
 
 func (h *AttendanceHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +126,17 @@ func (h *AttendanceHandler) CheckIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(req.SelfieBase64) == "" {
+		http.Error(w, "selfie required", http.StatusBadRequest)
+		return
+	}
+
+	// normalisasi + resize → JPEG base64
+	normB64, err := imgutil.NormalizeBase64(req.SelfieBase64)
+	if err != nil {
+		http.Error(w, "invalid selfie: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	dist := util.HaversineMeters(req.Lat, req.Lng, util.OfficeLat, util.OfficeLng)
 	if !util.InsideRadius(dist) {
@@ -139,7 +152,9 @@ func (h *AttendanceHandler) CheckIn(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	ad, err := h.Attendance.DoCheckIn(ctx, uid, util.OfficeDate(now), now, req.Lat, req.Lng, dist)
+
+	// NOTE: repo perlu diubah terima argumen foto (lihat catatan di bawah)
+	ad, err := h.Attendance.DoCheckIn(ctx, uid, util.OfficeDate(now), now, req.Lat, req.Lng, dist, normB64)
 	if err != nil {
 		// kemungkinan sudah check-in
 		writeJSON(w, 409, map[string]any{"error": map[string]any{"code": "already_checked_in"}})
@@ -174,6 +189,16 @@ func (h *AttendanceHandler) CheckOut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(req.SelfieBase64) == "" {
+		http.Error(w, "selfie required", http.StatusBadRequest)
+		return
+	}
+
+	normB64, err := imgutil.NormalizeBase64(req.SelfieBase64)
+	if err != nil {
+		http.Error(w, "invalid selfie: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	dist := util.HaversineMeters(req.Lat, req.Lng, util.OfficeLat, util.OfficeLng)
 	if !util.InsideRadius(dist) {
@@ -189,7 +214,9 @@ func (h *AttendanceHandler) CheckOut(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	ad, err := h.Attendance.DoCheckOut(ctx, uid, util.OfficeDate(now), now, req.Lat, req.Lng, dist)
+
+	// NOTE: repo perlu diubah terima argumen foto (lihat catatan di bawah)
+	ad, err := h.Attendance.DoCheckOut(ctx, uid, util.OfficeDate(now), now, req.Lat, req.Lng, dist, normB64)
 	if err != nil {
 		// belum check-in atau sudah check-out
 		writeJSON(w, 409, map[string]any{"error": map[string]any{"code": "not_checked_in_yet_or_already_checked_out"}})
