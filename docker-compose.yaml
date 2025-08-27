@@ -1,0 +1,13 @@
+# docker-compose.yml
+version: "3.9"
+services:
+  api:
+    build: .
+    image: absensi:dev
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env # ambil DATABASE_URL, JWT_SECRET, dll dari .env
+    environment:
+      - PORT=8080 # pastikan app dengar di 8080
+    restart: unless-stopped
