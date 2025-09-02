@@ -19,6 +19,11 @@ func New(db *sql.DB) http.Handler {
 		Users:      repo.NewUserRepo(db),
 		Attendance: repo.NewAttendanceRepo(db),
 	}
+
+	lh := &handlers.LeaveHandler{
+		Leaves: repo.NewLeaveRepo(db),
+	}
+
 	mux.HandleFunc("POST /register", uh.Register)
 	mux.HandleFunc("POST /login", uh.Login)
 	mux.HandleFunc("POST /refresh", uh.RefreshToken)
@@ -32,6 +37,12 @@ func New(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /attendance/debug/reset-today", ah.DebugResetToday)
 	mux.HandleFunc("GET /attendance/marks", ah.GetMarks)
 	mux.HandleFunc("GET /attendance/day", ah.GetDay)
+
+	mux.HandleFunc("GET /leave/quota", lh.GetQuota)
+	mux.HandleFunc("POST /leave/cuti/request", lh.RequestCuti)
+	mux.HandleFunc("GET /leave/cuti/list", lh.ListCuti)
+	mux.HandleFunc("POST /leave/cuti/approve", lh.ApproveCuti)
+	mux.HandleFunc("POST /leave/cuti/reject", lh.RejectCuti)
 
 	return mux
 }
