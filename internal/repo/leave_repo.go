@@ -183,3 +183,123 @@ func (r *LeaveRepo) ListCutiByYearStatus(
 	}
 	return out, rows.Err()
 }
+
+// Struct terpisah untuk "sakit" agar tidak mengganggu ListCuti yg sudah ada
+type SickRequest struct {
+	ID          string
+	UserID      string
+	Kind        string
+	Status      string
+	Reason      sql.NullString
+	StartDate   time.Time
+	EndDate     time.Time
+	Days        int
+	CreatedAt   time.Time
+	DecidedAt   sql.NullTime
+	ProofBase64 sql.NullString
+}
+
+// CreateSakitPending: insert pengajuan sakit (status pending), bukti wajib.
+func (r *LeaveRepo) CreateSakitPending(
+	ctx context.Context,
+	userID string,
+	start, end time.Time,
+	days int,
+	reason string,
+	proofBase64 string,
+) (string, error) {
+	const q = `
+		INSERT INTO leave_requests
+		  (user_id, kind,  status,  reason, start_date, end_date, days, proof_base64)
+		VALUES
+		  ($1,     'sakit','pending',$2,     $3::date,  $4::date, $5,   $6)
+		RETURNING id::text
+	`
+	var id string
+	if err := r.DB.QueryRowContext(ctx, q, userID, reason,
+		start.Format("2006-01-02"),
+		end.Format("2006-01-02"),
+		days,
+		proofBase64,
+	).Scan(&id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// ApproveSick: set status approved utk pengajuan sakit yg masih pending.
+func (r *LeaveRepo) ApproveSick(ctx context.Context, reqID string) (int64, error) {
+	const q = `
+		UPDATE leave_requests
+		SET status='approved', decided_at=NOW()
+		WHERE id = $1 AND kind='sakit' AND status='pending'
+	`
+	res, err := r.DB.ExecContext(ctx, q, reqID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// RejectSick: set status rejected utk pengajuan sakit yg masih pending.
+func (r *LeaveRepo) RejectSick(ctx context.Context, reqID string) (int64, error) {
+	const q = `
+		UPDATE leave_requests
+		SET status='rejected', decided_at=NOW()
+		WHERE id = $1 AND kind='sakit' AND status='pending'
+	`
+	res, err := r.DB.ExecContext(ctx, q, reqID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// ListSakitByYearStatus: daftar pengajuan sakit user dlm 1 tahun, filter status optional.
+func (r *LeaveRepo) ListSakitByYearStatus(
+	ctx context.Context,
+	userID string,
+	year int,
+	status string, // "all" | "pending" | "approved" | "rejected" | ""
+) ([]SickRequest, error) {
+
+	base := `
+		SELECT id::text, user_id::text, kind, status, reason,
+		       start_date, end_date, days, created_at, decided_at,
+		       proof_base64
+		FROM leave_requests
+		WHERE user_id = $1
+		  AND kind = 'sakit'
+		  AND EXTRACT(YEAR FROM start_date) = $2
+	`
+	var rows *sql.Rows
+	var err error
+
+	switch status {
+	case "", "all":
+		q := base + ` ORDER BY start_date DESC, created_at DESC`
+		rows, err = r.DB.QueryContext(ctx, q, userID, year)
+	default:
+		q := base + ` AND status = $3 ORDER BY start_date DESC, created_at DESC`
+		rows, err = r.DB.QueryContext(ctx, q, userID, year, status)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SickRequest
+	for rows.Next() {
+		var sr SickRequest
+		if err := rows.Scan(
+			&sr.ID, &sr.UserID, &sr.Kind, &sr.Status, &sr.Reason,
+			&sr.StartDate, &sr.EndDate, &sr.Days, &sr.CreatedAt, &sr.DecidedAt,
+			&sr.ProofBase64,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, sr)
+	}
+	return out, rows.Err()
+}

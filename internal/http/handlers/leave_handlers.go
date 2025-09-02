@@ -436,3 +436,232 @@ func (h *LeaveHandler) ListCuti(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+type sickReq struct {
+	StartDate        string `json:"start_date"`
+	EndDate          string `json:"end_date"`
+	DoctorNoteBase64 string `json:"doctor_note_base64"`
+	Reason           string `json:"reason,omitempty"`
+}
+
+type sickResp struct {
+	RequestID string `json:"request_id"`
+	Status    string `json:"status"` // "pending"
+	Days      int    `json:"days"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+}
+
+func (h *LeaveHandler) RequestSakit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, _, ok := mustAuth(w, r)
+	if !ok {
+		return
+	}
+
+	var req sickReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.DoctorNoteBase64 == "" {
+		http.Error(w, "doctor_note_base64 required", http.StatusBadRequest)
+		return
+	}
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	start, err1 := time.ParseInLocation("2006-01-02", req.StartDate, loc)
+	end, err2 := time.ParseInLocation("2006-01-02", req.EndDate, loc)
+	if err1 != nil || err2 != nil || end.Before(start) {
+		http.Error(w, "invalid date range", http.StatusBadRequest)
+		return
+	}
+
+	// hitung hari inklusif
+	days := int(end.Sub(start).Hours()/24) + 1
+	if days < 1 {
+		http.Error(w, "invalid days", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	id, err := h.Leaves.CreateSakitPending(ctx, userID, start, end, days, req.Reason, req.DoctorNoteBase64)
+	if err != nil {
+		http.Error(w, "insert failed", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, sickResp{
+		RequestID: id,
+		Status:    "pending",
+		Days:      days,
+		StartDate: start.Format("2006-01-02"),
+		EndDate:   end.Format("2006-01-02"),
+	})
+}
+
+// ===== POST /leave/sakit/{id}/approve =====
+func (h *LeaveHandler) ApproveSakit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// bearer user sendiri (by design saat ini)
+	if _, _, ok := mustAuth(w, r); !ok {
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	aff, err := h.Leaves.ApproveSick(ctx, id)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if aff == 0 {
+		http.Error(w, "not found or already decided", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"result": "approved",
+		"id":     id,
+	})
+}
+
+// ===== POST /leave/sakit/{id}/reject =====
+func (h *LeaveHandler) RejectSakit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, _, ok := mustAuth(w, r); !ok {
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	aff, err := h.Leaves.RejectSick(ctx, id)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if aff == 0 {
+		http.Error(w, "not found or already decided", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"result": "rejected",
+		"id":     id,
+	})
+}
+
+// ===== GET /leave/sakit/list?status=all|pending|approved|rejected&year=YYYY =====
+
+type sickListItem struct {
+	ID        string  `json:"id"`
+	Status    string  `json:"status"`
+	Reason    string  `json:"reason,omitempty"`
+	StartDate string  `json:"start_date"`
+	EndDate   string  `json:"end_date"`
+	Days      int     `json:"days"`
+	CreatedAt string  `json:"created_at"`           // RFC3339 UTC
+	DecidedAt *string `json:"decided_at,omitempty"` // RFC3339 UTC
+	HasProof  bool    `json:"has_proof"`
+}
+
+type sickListResp struct {
+	Year         int            `json:"year"`
+	StatusFilter string         `json:"status_filter"`
+	Items        []sickListItem `json:"items"`
+}
+
+func (h *LeaveHandler) ListSakit(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := mustAuth(w, r)
+	if !ok {
+		return
+	}
+
+	q := r.URL.Query()
+	status := q.Get("status")
+	if status == "" {
+		status = "all"
+	}
+	switch status {
+	case "all", "pending", "approved", "rejected":
+	default:
+		http.Error(w, "invalid status", http.StatusBadRequest)
+		return
+	}
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
+	year := now.Year()
+
+	if y := q.Get("year"); y != "" {
+		if v, err := strconv.Atoi(y); err == nil {
+			year = v
+		} else {
+			http.Error(w, "invalid year", http.StatusBadRequest)
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := h.Leaves.ListSakitByYearStatus(ctx, userID, year, status)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	toPtr := func(nt sql.NullTime) *string {
+		if nt.Valid {
+			s := nt.Time.UTC().Format(time.RFC3339)
+			return &s
+		}
+		return nil
+	}
+
+	items := make([]sickListItem, 0, len(rows))
+	for _, sr := range rows {
+		items = append(items, sickListItem{
+			ID:        sr.ID,
+			Status:    sr.Status,
+			Reason:    sr.Reason.String,
+			StartDate: sr.StartDate.Format("2006-01-02"),
+			EndDate:   sr.EndDate.Format("2006-01-02"),
+			Days:      sr.Days,
+			CreatedAt: sr.CreatedAt.UTC().Format(time.RFC3339),
+			DecidedAt: toPtr(sr.DecidedAt),
+			HasProof:  sr.ProofBase64.Valid && sr.ProofBase64.String != "",
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sickListResp{
+		Year:         year,
+		StatusFilter: status,
+		Items:        items,
+	})
+}

@@ -44,5 +44,10 @@ func New(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /leave/cuti/approve", lh.ApproveCuti)
 	mux.HandleFunc("POST /leave/cuti/reject", lh.RejectCuti)
 
+	mux.HandleFunc("POST /leave/sakit/request", lh.RequestSakit)
+	mux.HandleFunc("POST /leave/sakit/{id}/approve", lh.ApproveSakit)
+	mux.HandleFunc("POST /leave/sakit/{id}/reject", lh.RejectSakit)
+	mux.HandleFunc("GET /leave/sakit/list", lh.ListSakit)
+
 	return mux
 }
